@@ -1,14 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import { isRsvpEndpoint, sendRsvp } from './rsvp.js';
 
 // 14:00 по времени Иркутска (UTC+8).
 const WEDDING_DATE = new Date('2027-07-07T06:00:00Z');
 const RSVP_KEY = 'wedding-rsvps';
-// Google показывает подтверждение только после приёма ответа.
 const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfksHDpRHD6ThPH03NCvT8qr8J-mqjbaEdSbpQJXybDsJaGCg/viewform';
-// Локально сохраняем демо-режим; production использует настоящую форму.
-const USE_GOOGLE_FORM = import.meta.env.PROD || import.meta.env.VITE_RSVP_TEST === 'google';
+const RSVP_ENDPOINT = (import.meta.env.VITE_RSVP_ENDPOINT || '').trim();
+// Production never falls back to localStorage or pretends to save an answer.
+const DEMO_MODE = import.meta.env.DEV && !RSVP_ENDPOINT;
+const RSVP_READY = DEMO_MODE || isRsvpEndpoint(RSVP_ENDPOINT);
 // Укажите ссылку на реестр подарков; пока её нет, блок не показывается.
 const GIFT_REGISTRY_URL = '';
 const navItems = [
@@ -175,33 +177,47 @@ function RSVP() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const pendingRequest = useRef(null);
+  const inFlight = useRef(false);
   async function handleSubmit(event) {
     event.preventDefault();
+    if (inFlight.current || !RSVP_READY) return;
     const form = event.currentTarget;
     const data = new FormData(form);
     const entry = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       name: String(data.get('name')).trim(),
       attendance: String(data.get('attendance')),
-      guests: String(data.get('guests') || '1'),
+      guests: status === 'attending' ? String(data.get('guests') || '1') : '0',
       food: String(data.get('food') || '').trim(),
       transfer: data.get('transfer') === 'on',
       comment: String(data.get('comment') || '').trim(),
-      submittedAt: new Date().toISOString(),
     };
     if (!entry.name) return setError('Пожалуйста, укажите имя и фамилию.');
+    const fingerprint = JSON.stringify(entry);
+    if (pendingRequest.current?.fingerprint !== fingerprint) {
+      pendingRequest.current = { fingerprint, id: crypto.randomUUID() };
+    }
+    const payload = { ...entry, id: pendingRequest.current.id };
+    inFlight.current = true;
     setSubmitting(true);
+    setError('');
     try {
-      const responses = JSON.parse(localStorage.getItem(RSVP_KEY) || '[]');
-      localStorage.setItem(RSVP_KEY, JSON.stringify([entry, ...responses]));
+      if (DEMO_MODE) {
+        const responses = JSON.parse(localStorage.getItem(RSVP_KEY) || '[]');
+        localStorage.setItem(RSVP_KEY, JSON.stringify([{ ...payload, submittedAt: new Date().toISOString() }, ...responses]));
+      } else {
+        await sendRsvp(RSVP_ENDPOINT, payload);
+      }
+      pendingRequest.current = null;
       setError('');
       setSubmitted(true);
       form.reset();
       setStatus('attending');
       setGuestCount('1');
     } catch {
-      setError('Не удалось отправить ответ. Проверьте подключение и попробуйте ещё раз.');
+      setError(DEMO_MODE ? 'Не удалось сохранить демо-ответ в браузере.' : 'Не удалось подтвердить сохранение. Проверьте подключение и повторите отправку, не меняя данные — повтор не создаст дубликат. Можно также связаться с Татьяной.');
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   }
@@ -211,10 +227,9 @@ function RSVP() {
       <div className="section-kicker light"><span>05</span><span className="kicker-line"/><span>ВАШ ОТВЕТ</span></div>
       <div className="rsvp-grid">
         <div className="rsvp-intro"><p className="eyebrow light">БУДЕМ ЖДАТЬ ВЕСТОЧКУ ДО 30 АПРЕЛЯ 2027</p><h2>Вы с нами?</h2><p>Пожалуйста, ответьте до 30 апреля 2027 года, даже если не сможете прийти. Нам важно знать и спланировать праздник для каждого.</p><div className="contact-card"><span>Остались вопросы?</span><a href="tel:+79954950046">Татьяна · +7 995 495-00-46</a></div></div>
-        <div className={`rsvp-form-wrap${USE_GOOGLE_FORM ? ' google-form-wrap' : ''}`}>{USE_GOOGLE_FORM ? <>
-          <p className="google-form-note">Ответы получат только организаторы. Если анкета не загружается, <a href={GOOGLE_FORM_URL} target="_blank" rel="noreferrer">откройте её в новой вкладке</a>.</p>
-          <iframe className="google-form" src={`${GOOGLE_FORM_URL}?embedded=true`} title="Анкета гостя — Павел и Виктория">Загрузка анкеты…</iframe>
-        </> : submitted ? <div className="success-message" role="status"><span className="success-heart"><Icon name="heart" size={30} /></span><h3>Спасибо за ответ!</h3><p>Ваш ответ сохранён в этом браузере. До встречи на празднике!</p><button className="text-button" onClick={() => setSubmitted(false)}>Отправить ещё один ответ</button></div> : <form className="rsvp-form" onSubmit={handleSubmit}>
+        <div className="rsvp-form-wrap">{submitted ? <div className="success-message" role="status"><span className="success-heart"><Icon name="heart" size={30} /></span><h3>Спасибо за ответ!</h3><p>{DEMO_MODE ? 'Демо-ответ сохранён только в этом браузере.' : 'Ваш ответ записан в таблицу организаторов. Спасибо!'}</p><button className="text-button" onClick={() => setSubmitted(false)}>Отправить ещё один ответ</button></div> : <form className="rsvp-form" onSubmit={handleSubmit} aria-busy={submitting}>
+          {!RSVP_READY && <p className="form-error" role="status">Анкета на сайте пока подключается. <a href={GOOGLE_FORM_URL} target="_blank" rel="noreferrer">Ответить через Google Форму</a> или свяжитесь с Татьяной.</p>}
+          <fieldset className="rsvp-inputs" disabled={submitting || !RSVP_READY}>
           <label className="field-label" htmlFor="guest-name">Ваше имя и фамилия <span>*</span></label>
           <input id="guest-name" name="name" type="text" autoComplete="name" placeholder="Например, Анна Иванова" required maxLength="100" />
           <fieldset className="attendance-field"><legend>Сможете прийти? <span>*</span></legend><div className="radio-options">
@@ -227,9 +242,10 @@ function RSVP() {
             <label className="checkbox-line"><input type="checkbox" name="transfer" /><span className="checkbox-ui"/>Нужен трансфер из Иркутска</label>
           </>}
           <label className="field-label" htmlFor="comment">Комментарий <span className="optional">необязательно</span></label><textarea id="comment" name="comment" rows="3" placeholder="Что ещё нам важно знать?" maxLength="500" />
-          <button className="button button-gold" type="submit" disabled={submitting}>{submitting ? 'Отправляем…' : 'Отправить ответ'} {!submitting && <Icon name="arrow" size={18} />}</button>
+          </fieldset>
+          <button className="button button-gold" type="submit" disabled={submitting || !RSVP_READY}>{submitting ? 'Отправляем…' : 'Отправить ответ'} {!submitting && <Icon name="arrow" size={18} />}</button>
           {error && <p className="form-error" role="alert">{error}</p>}
-          <p className="privacy-note">Демо-режим: ответ сохранится только в этом браузере.</p>
+          <p className="privacy-note">{DEMO_MODE ? 'Демо-режим: ответ сохранится только в этом браузере.' : 'Ответ получат организаторы в Google Таблице. Вход в Google не нужен.'}</p>
         </form>}</div>
       </div>
     </div>

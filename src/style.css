@@ -150,11 +150,11 @@ img { display: block; max-width: 100%; }
 .rsvp-unavailable .eyebrow { margin-bottom: 11px; }
 .rsvp-unavailable h3 { margin: 0 0 10px; font: 400 29px/1.2 var(--serif); color: var(--pine); }
 .rsvp-unavailable p { max-width: 330px; margin: 0; color: #68736a; font-size: 12px; line-height: 1.7; }
-.google-form-wrap { padding: 16px 0; min-width: 0; }
-.google-form { display: block; width: 100%; height: 1350px; border: 0; }
-.google-form-note { margin: 0; padding: 0 20px 16px; font-size: 12px; line-height: 1.7; }
-.google-form-note a { color: inherit; text-underline-offset: 3px; }
-.rsvp-form { display: grid; gap: 10px; }
+.rsvp-form, .rsvp-inputs { display: grid; gap: 10px; }
+.rsvp-inputs { min-width: 0; padding: 0; margin: 0; border: 0; }
+.rsvp-inputs:disabled { opacity: .65; }
+.rsvp-form button:disabled { opacity: .6; cursor: not-allowed; }
+.form-error a { color: inherit; text-underline-offset: 3px; }
 .field-label, .attendance-field legend { font-weight: 600; font-size: 11px; margin: 8px 0 0; }
 .field-label > span, .attendance-field legend > span { color: #b1785a; }
 .field-label .optional { color: #95998d; font-weight: 400; padding-left: 5px; font-size: 10px; }
@@ -311,8 +311,6 @@ img { display: block; max-width: 100%; }
   .rsvp-intro > p:not(.eyebrow) { font-size: 12px; }
   .contact-card { margin-top: 28px; }
   .rsvp-form-wrap { width: 100%; padding: 23px 17px; }
-  .google-form-wrap { padding: 16px 0; }
-  .google-form { height: 1550px; }
   .radio-options { gap: 6px; }
   .radio-card { font-size: 9px; padding: 7px 5px; }
   .button-gold { width: 100%; }
